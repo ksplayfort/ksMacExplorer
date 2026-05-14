@@ -15,10 +15,10 @@
 ## ⬇️ Download / ดาวน์โหลด
 
 **[EN]** You can download the latest version of the installer (`.dmg`) from our **Releases** page:
-* 🔗 [Download KSMacExplorer (Latest Release)](https://github.com/ksplayfoft/ksmacexplorer/releases/latest)
+* 🔗 [Download KSMacExplorer (Latest Release)](https://github.com/ksplayfort/ksmacexplorer/releases/latest)
 
 **[TH]** คุณสามารถดาวน์โหลดตัวติดตั้งเวอร์ชันล่าสุด (`.dmg`) ได้ที่หน้า **Releases**:
-* 🔗 [ดาวน์โหลด KSMacExplorer (เวอร์ชันล่าสุด)](https://github.com/ksplayfoft/ksmacexplorer/releases/latest)
+* 🔗 [ดาวน์โหลด KSMacExplorer (เวอร์ชันล่าสุด)](https://github.com/ksplayfort/ksmacexplorer/releases/latest)
 
 ---
 
