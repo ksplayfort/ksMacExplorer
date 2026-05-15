@@ -798,7 +798,7 @@ class ExplorerViewModel: ObservableObject {
     nonisolated private func generateUniqueCopyURL(for sourceURL: URL, in destinationFolder: URL) -> URL {
         let baseName = sourceURL.deletingPathExtension().lastPathComponent
         let ext = sourceURL.pathExtension
-        let dotExt = ext.isEmpty ? "" : ".\(ext)"
+        let dotExt = ext.isEmpty ? "" : "Col"
         var newName = "\(baseName) copy\(dotExt)"
         var newURL = destinationFolder.appendingPathComponent(newName)
         var counter = 2
@@ -1161,7 +1161,7 @@ class ExplorerViewModel: ObservableObject {
         alert.informativeText = "Are you sure you want to move the selected \(itemCount == 1 ? "item" : "items") to the Trash?"
         alert.alertStyle = .warning
 
-        let deleteButton = alert.addButton(withTitle: "Delete")
+        let deleteButton = alert.addButton(withTitle: "Move to Trash")
         deleteButton.hasDestructiveAction = true
         alert.addButton(withTitle: "Cancel")
 
@@ -1229,6 +1229,9 @@ class ExplorerViewModel: ObservableObject {
 
         if !isNavigating && resolvedTargetURL.standardized != currentPathURL.standardized {
             backStack.append(currentPathURL)
+            if backStack.count > 20 {
+                backStack.removeFirst(backStack.count - 20)
+            }
             forwardStack.removeAll()
         }
 
@@ -1253,6 +1256,9 @@ class ExplorerViewModel: ObservableObject {
         guard !backStack.isEmpty else { return }
         let previous = backStack.removeLast()
         forwardStack.append(currentPathURL)
+        if forwardStack.count > 20 {
+            forwardStack.removeFirst(forwardStack.count - 20)
+        }
         Task { await loadFiles(from: previous, isNavigating: true) }
     }
 
@@ -1260,6 +1266,9 @@ class ExplorerViewModel: ObservableObject {
         guard !forwardStack.isEmpty else { return }
         let next = forwardStack.removeLast()
         backStack.append(currentPathURL)
+        if backStack.count > 20 {
+            backStack.removeFirst(backStack.count - 20)
+        }
         Task { await loadFiles(from: next, isNavigating: true) }
     }
 
@@ -1268,6 +1277,9 @@ class ExplorerViewModel: ObservableObject {
         let targetURL = backStack[index]
         let itemsToMove = backStack.suffix(from: index + 1)
         forwardStack = Array(itemsToMove.reversed()) + [currentPathURL] + forwardStack
+        if forwardStack.count > 20 {
+            forwardStack.removeFirst(forwardStack.count - 20)
+        }
         backStack.removeSubrange(index...)
         Task { await loadFiles(from: targetURL, isNavigating: true) }
     }
@@ -1277,6 +1289,9 @@ class ExplorerViewModel: ObservableObject {
         let targetURL = forwardStack[index]
         let itemsToMove = forwardStack.prefix(upTo: index)
         backStack = backStack + [currentPathURL] + Array(itemsToMove)
+        if backStack.count > 20 {
+            backStack.removeFirst(backStack.count - 20)
+        }
         forwardStack.removeSubrange(...index)
         Task { await loadFiles(from: targetURL, isNavigating: true) }
     }
@@ -1571,7 +1586,13 @@ struct SearchBarView: View {
                 TextField("Search", text: $viewModel.searchText).textFieldStyle(.plain).onSubmit { viewModel.commitSearch() }
                 if !viewModel.searchText.isEmpty { Button(action: { viewModel.searchText = "" }) { Image(systemName: "xmark.circle.fill").foregroundColor(.secondary) }.buttonStyle(.plain) }
             }.padding(4).padding(.horizontal, 4).background(Color(NSColor.controlBackgroundColor)).cornerRadius(6).overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.2), lineWidth: 1)).frame(width: 220)
-            Menu { ForEach(viewModel.searchHistory, id: \.self) { term in Button(term) { viewModel.searchText = term } } } label: { Image(systemName: "clock.arrow.circlepath") }.menuStyle(.borderlessButton).fixedSize()
+            Menu { 
+                if viewModel.searchHistory.isEmpty {
+                    Text("No Search History")
+                } else {
+                    ForEach(viewModel.searchHistory, id: \.self) { term in Button(term) { viewModel.searchText = term } }
+                }
+            } label: { Image(systemName: "clock.arrow.circlepath") }.menuStyle(.borderlessButton).fixedSize()
         }
     }
 }
@@ -1592,6 +1613,34 @@ struct AddressBarView: View {
             Button(action: { viewModel.goForward() }) { Image(systemName: "arrow.forward") }.disabled(viewModel.forwardStack.isEmpty)
             Button(action: { Task { await viewModel.loadFiles(from: viewModel.currentPathURL.deletingLastPathComponent()) } }) { Image(systemName: "arrow.up") }
             TextField("Address", text: $textInput).textFieldStyle(RoundedBorderTextFieldStyle()).focused(focusedField, equals: .addressBar).onSubmit { Task { await viewModel.loadFiles(from: URL(fileURLWithPath: textInput)) } }.onChange(of: viewModel.currentPathURL) { textInput = $0.path }.onAppear { textInput = viewModel.currentPathURL.path }
+            
+            // ปุ่มดูประวัติโฟลเดอร์ที่เคยเปิด (Folder History)
+            Menu {
+                if viewModel.backStack.isEmpty && viewModel.forwardStack.isEmpty {
+                    Text("No Folder History")
+                } else {
+                    if !viewModel.forwardStack.isEmpty {
+                        ForEach(Array(viewModel.forwardStack.enumerated().reversed()), id: \.offset) { index, url in
+                            Button(url.path) { viewModel.jumpForward(to: index) }
+                        }
+                        Divider()
+                    }
+                    
+                    Button(viewModel.currentPathURL.path + " (Current)") {}.disabled(true)
+                    
+                    if !viewModel.backStack.isEmpty {
+                        Divider()
+                        ForEach(Array(viewModel.backStack.enumerated().reversed()), id: \.offset) { index, url in
+                            Button(url.path) { viewModel.jumpBack(to: index) }
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "clock")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            
             Button(action: { Task { await viewModel.loadFiles(from: viewModel.currentPathURL) } }) { Image(systemName: "arrow.clockwise") }
             Divider().frame(height: 20)
             SearchBarView(viewModel: viewModel)
@@ -1605,22 +1654,63 @@ struct RibbonToolbarView: View {
     @Binding var showInspector: Bool
     @State private var isShowingNewFolderAlert = false
     @State private var newFolderName = ""
+    
+    @State private var showingBookmarksPopover = false
+    @State private var bookmarkToDelete: BookmarkItem? = nil
+    @State private var isShowingDeleteBookmarkAlert = false
 
     var body: some View {
         HStack(spacing: 15) {
             Picker("", selection: $viewModel.viewMode) { Image(systemName: "square.grid.2x2").tag(ViewMode.icons); Image(systemName: "list.bullet").tag(ViewMode.list) }.pickerStyle(.segmented).frame(width: 70)
             Divider().frame(height: 20)
-            RibbonButton(icon: "doc.on.clipboard", label: "Copy") { viewModel.copySelected() }
             RibbonButton(icon: "scissors", label: "Cut") { viewModel.cutSelected() }
+            RibbonButton(icon: "doc.on.clipboard", label: "Copy") { viewModel.copySelected() }
             RibbonButton(icon: "doc.on.clipboard.fill", label: "Paste") { viewModel.paste() }.disabled(!viewModel.canPaste)
             Divider().frame(height: 20)
             RibbonButton(icon: "folder.badge.plus", label: "New Folder") { newFolderName = "New Folder"; isShowingNewFolderAlert = true }
-            RibbonButton(icon: "trash", label: "Delete") { viewModel.deleteSelected() }
+            RibbonButton(icon: "trash", label: "Move to Trash") { viewModel.deleteSelected() }
             Divider().frame(height: 20)
-            Menu {
-                Button(action: viewModel.addCurrentToBookmarks) { Label("Bookmark Current Folder", systemImage: "plus.square.on.square") }
-                if !viewModel.bookmarks.isEmpty { Divider(); ForEach(viewModel.bookmarks) { bookmark in Menu(bookmark.name) { Button("Go to Folder") { Task { await viewModel.loadFiles(from: bookmark.url) } }; Button("Remove Bookmark", role: .destructive) { viewModel.removeBookmark(id: bookmark.id) } } } }
-            } label: { RibbonButton(icon: "bookmark", label: "Bookmarks") { } }.menuStyle(.borderlessButton).fixedSize()
+            
+            RibbonButton(icon: "bookmark", label: "Bookmarks") {
+                showingBookmarksPopover.toggle()
+            }
+            .popover(isPresented: $showingBookmarksPopover, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 4) {
+                    BookmarkAddRowView(viewModel: viewModel, showingBookmarksPopover: $showingBookmarksPopover)
+                    
+                    if !viewModel.bookmarks.isEmpty {
+                        Divider()
+                        ScrollView {
+                            VStack(spacing: 2) {
+                                ForEach(viewModel.bookmarks) { bookmark in
+                                    BookmarkRowView(
+                                        bookmark: bookmark,
+                                        viewModel: viewModel,
+                                        showingBookmarksPopover: $showingBookmarksPopover,
+                                        bookmarkToDelete: $bookmarkToDelete,
+                                        isShowingDeleteBookmarkAlert: $isShowingDeleteBookmarkAlert
+                                    )
+                                }
+                            }
+                        }
+                        .frame(maxHeight: 300)
+                    }
+                }
+                .frame(width: 250)
+                .padding(.vertical, 8)
+            }
+            .alert("Remove Bookmark", isPresented: $isShowingDeleteBookmarkAlert, presenting: bookmarkToDelete) { bookmark in
+                Button("Remove", role: .destructive) {
+                    viewModel.removeBookmark(id: bookmark.id)
+                    bookmarkToDelete = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    bookmarkToDelete = nil
+                }
+            } message: { bookmark in
+                Text("Are you sure you want to remove '\(bookmark.name)' from your bookmarks?")
+            }
+            
             Spacer()
             Toggle("Auto Expand", isOn: $viewModel.autoExpandSidebar).toggleStyle(.checkbox)
             Toggle("Folder Sizes", isOn: $viewModel.showFolderSizes).toggleStyle(.checkbox)
@@ -1639,7 +1729,103 @@ struct RibbonToolbarView: View {
 
 struct RibbonButton: View {
     let icon: String; let label: String; var action: () -> Void
-    var body: some View { Button(action: action) { VStack { Image(systemName: icon).font(.system(size: 16)); Text(label).font(.caption2) } }.buttonStyle(PlainButtonStyle()) }
+    @State private var isHovering = false
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 16))
+                Text(label).font(.caption2)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
+        .onHover { hovering in isHovering = hovering }
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(isHovering ? Color.secondary.opacity(0.4) : Color.clear, lineWidth: 1)
+        )
+    }
+}
+
+struct BookmarkAddRowView: View {
+    @ObservedObject var viewModel: ExplorerViewModel
+    @Binding var showingBookmarksPopover: Bool
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: {
+            viewModel.addCurrentToBookmarks()
+            showingBookmarksPopover = false
+        }) {
+            Label("Bookmark Current Folder", systemImage: "plus.square.on.square")
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in isHovering = hovering }
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(isHovering ? Color.secondary.opacity(0.4) : Color.clear, lineWidth: 1)
+        )
+        .padding(.horizontal, 8)
+    }
+}
+
+struct BookmarkRowView: View {
+    let bookmark: BookmarkItem
+    @ObservedObject var viewModel: ExplorerViewModel
+    @Binding var showingBookmarksPopover: Bool
+    @Binding var bookmarkToDelete: BookmarkItem?
+    @Binding var isShowingDeleteBookmarkAlert: Bool
+    @State private var isHovering = false
+    @State private var isHoveringDelete = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button(action: {
+                Task { await viewModel.loadFiles(from: bookmark.url) }
+                showingBookmarksPopover = false
+            }) {
+                Text(bookmark.name)
+                    .padding(.vertical, 6)
+                    .padding(.leading, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button(action: {
+                bookmarkToDelete = bookmark
+                isShowingDeleteBookmarkAlert = true
+            }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(isHoveringDelete ? .red : .secondary)
+                    .padding(6)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in isHoveringDelete = hovering }
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(isHoveringDelete ? Color.red.opacity(0.5) : Color.clear, lineWidth: 1)
+            )
+            .padding(.trailing, 4)
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering in isHovering = hovering }
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(isHovering && !isHoveringDelete ? Color.secondary.opacity(0.4) : Color.clear, lineWidth: 1)
+        )
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
+    }
 }
 
 struct FileTreeView: View {
@@ -2135,13 +2321,13 @@ extension IconCollectionView: NSCollectionViewDelegate {
     func buildMenu() -> NSMenu {
         let menu = NSMenu()
 
-        let copyItem = NSMenuItem(title: "Copy", action: #selector(copyAction), keyEquivalent: "")
-        copyItem.target = self
-        menu.addItem(copyItem)
-
         let cutItem = NSMenuItem(title: "Cut", action: #selector(cutAction), keyEquivalent: "")
         cutItem.target = self
         menu.addItem(cutItem)
+
+        let copyItem = NSMenuItem(title: "Copy", action: #selector(copyAction), keyEquivalent: "")
+        copyItem.target = self
+        menu.addItem(copyItem)
 
         let pasteItem = NSMenuItem(title: "Paste", action: #selector(pasteAction), keyEquivalent: "")
         pasteItem.target = self
@@ -2181,7 +2367,7 @@ extension IconCollectionView: NSCollectionViewDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        let deleteItem = NSMenuItem(title: "Delete", action: #selector(deleteAction), keyEquivalent: "")
+        let deleteItem = NSMenuItem(title: "Move to Trash", action: #selector(deleteAction), keyEquivalent: "")
         deleteItem.target = self
         menu.addItem(deleteItem)
 
