@@ -1,5 +1,6 @@
 # KSMacExplorer 🗂️
 **Ultimate Mac File Explorer / จัดการไฟล์บน Mac**
+
 A Mac File Manager familiar to Windows users, with its entire code and structure built by AI.![Version](https://img.shields.io/badge/version-1.0-blue.svg)
 
 ![macOS](https://img.shields.io/badge/macOS-12.0%2B-success.svg)
